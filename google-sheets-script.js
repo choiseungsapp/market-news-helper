@@ -111,9 +111,11 @@ function analyzeKeywordWithGemini(keyword) {
     var body = response.getContentText();
 
     if (code < 200 || code >= 300) {
+      var trimmedBody = body.substring(0, 800) + (body.length > 800 ? '...[생략됨]' : '');
       return jsonResponse({
         status: 'error',
-        message: 'Gemini API 에러 (' + code + '): ' + body
+        message: 'Gemini API 에러 (상태코드: ' + code + ')',
+        details: trimmedBody
       });
     }
 
@@ -200,4 +202,10 @@ function jsonResponse(obj) {
   return ContentService
     .createTextOutput(JSON.stringify(obj))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+// ── 에디터에서 직접 실행해 볼 수 있는 테스트 함수 ────────────────
+function testAnalyzeKeyword() {
+  var res = analyzeKeywordWithGemini('전력인프라');
+  Logger.log(res.getContentText());
 }

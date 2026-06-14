@@ -43,7 +43,25 @@
 
 1. 본 레포지토리의 파일들(`index.html`, `style.css`, `app.js`)을 로컬 서버나 브라우저를 통해 실행합니다.
    - 로컬 서버 실행 예시 (Python 3): `python -m http.server 8000`
-2. 웹 페이지 우측 상단의 **톱니바퀴(설정) 아이콘**을 클릭합니다.
-   - **Gemini API Key**: [Google AI Studio](https://aistudio.google.com/)에서 발급받은 API 키를 입력합니다. (※ 구글 클라우드 계정에 결제 프로필이 등록되어 있으면 한도 제약 없이 무제한으로 사용 가능합니다.)
-   - **Google Sheets Web App URL**: 스프레드시트의 확장 프로그램 -> Apps Script에 워크스페이스 내 `google-sheets-script.js` 코드를 넣고 **웹 앱**으로 배포하여 생성된 URL을 입력합니다. (액세스 권한: 모든 사용자)
-3. 원하는 시황 키워드를 검색하여 분석을 진행하고, 코멘트를 작성한 뒤 **Google 시트로 전송하기**를 누릅니다!
+2. **구글 스프레드시트 및 Gemini 연동 설정 (필수)**:
+   - 연동할 구글 시트에서 `확장 프로그램 > Apps Script`를 실행합니다.
+   - 워크스페이스 내 `google-sheets-script.js` 안의 코드를 복사하여 기존 스크립트에 덮어쓰고 저장합니다.
+   - Apps Script 에디터 좌측 **프로젝트 설정(톱니바퀴 아이콘)**을 클릭합니다.
+   - **스크립트 속성 편집**을 누르고, 속성명 `GEMINI_API_KEY`를 추가한 뒤 값에 사용자의 Gemini API Key(AQ. 또는 AIza 형식)를 넣고 저장합니다.
+   - 우측 상단 `배포 > 새 배포`를 눌러 **웹 앱** 유형으로, 실행 권한은 **나(Me)**, 액세스는 **모든 사용자(Anyone)**로 설정하여 배포합니다.
+   - 생성된 **웹 앱 URL**을 복사합니다.
+3. 웹 페이지 우측 상단의 **톱니바퀴(설정) 아이콘**을 클릭합니다.
+   - **Google Sheets Web App URL**: 복사한 웹 앱 URL을 입력하고 설정을 저장합니다. (보안을 위해 API 키는 웹 브라우저가 직접 다루지 않고 Apps Script를 통해서만 안전하게 연동됩니다.)
+4. 원하는 시황 키워드를 검색하여 분석을 진행하고, 코멘트를 작성한 뒤 **Google 시트로 전송하기**를 누릅니다!
+
+---
+
+## 🛠 문제 해결 (Troubleshooting)
+
+### 1. Gemini API 에러 (401 또는 403) 발생 시
+- Google AI Studio의 인증 정책 개편으로 인해 발급받은 API 키의 권한이나 형태(`AQ.` 또는 `AIza`)에 따라 인증 실패가 날 수 있습니다.
+- 이 경우:
+  1. Apps Script의 스크립트 속성(`Script Properties`)에 입력한 `GEMINI_API_KEY` 값이 정확한지(앞뒤 공백 등 포함 여부) 더블 체크해 주세요.
+  2. 에러가 지속되면 [Google AI Studio](https://aistudio.google.com/)에서 새로운 API 키를 재발급받아 `GEMINI_API_KEY` 속성값을 갱신 후 배포 버전을 업데이트해 보세요.
+  3. 여전히 오류가 해결되지 않을 경우, 브라우저 개발자 도구(F12) 콘솔 탭에서 구체적인 API 에러 원문 메시지를 확인하실 수 있습니다.
+

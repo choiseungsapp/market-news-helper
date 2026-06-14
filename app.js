@@ -536,7 +536,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       const resData = await response.json();
 
       if (resData.status === 'error') {
-        throw new Error(resData.message);
+        const detailMsg = resData.details ? `\n상세 정보: ${resData.details}` : '';
+        throw new Error(resData.message + detailMsg);
       }
 
       // Apps Script에서 받은 Gemini 결과 파싱
@@ -549,7 +550,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       const rawMatch = resultText.match(/\{[\s\S]*\}/);
       if (rawMatch) resultText = rawMatch[0];
 
-      const parsedData = JSON.parse(resultText);
+      let parsedData;
+      try {
+        parsedData = JSON.parse(resultText);
+      } catch (parseErr) {
+        console.error('[파싱 실패 원문]', resultText);
+        throw new Error(`AI 응답 JSON 파싱 실패: ${parseErr.message}`);
+      }
 
       // Update State
       appState.newsTitle   = parsedData.news_title || '';
@@ -598,6 +605,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     btnExport.querySelector('span').textContent = '전송 중...';
 
     const payload = {
+      action: 'exportData',
       date: commentaryDate.value,
       keyword: searchKeyword.value.trim(),
       summary: appState.newsSummary ? `[${appState.newsTitle}]\n${appState.newsSummary}` : '뉴스 요약 없음',
