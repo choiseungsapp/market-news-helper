@@ -1,6 +1,16 @@
 // App logic for Market Challenge News Helper
+// Supabase integration for history & favorites cloud sync
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  // ── Supabase 초기화 ──────────────────────────────────────────────
+  const SUPABASE_URL = 'https://zasrkekvoprnsbjqriqw.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inphc3JrZWt2b3BybnNianFyaXF3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEzOTExMTgsImV4cCI6MjA5Njk2NzExOH0.E4IijWQ6b50R6CZCrMbA2hE7EPl2m0LRJfAZwCQFOZE';
+  const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  let useSupabase = true; // Supabase 연결 가능 여부 (실패 시 localStorage fallback)
+
+  // ── Gemini 모델 설정 (여기서만 바꾸면 됨) ───────────────────────────
+  const GEMINI_MODEL = 'gemini-2.5-flash';
+
   // Elements
   const btnSettings = document.getElementById('btn-settings');
   const btnCloseSettings = document.getElementById('btn-close-settings');
@@ -14,7 +24,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const historyList = document.getElementById('history-list');
   const historyEmpty = document.getElementById('history-empty');
 
-  const inputApiKey = document.getElementById('input-api-key');
   const inputSheetsUrl = document.getElementById('input-sheets-url');
 
   const dotApi = document.getElementById('dot-api');
@@ -48,26 +57,28 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Application State
   let appState = {
-    apiKey: localStorage.getItem('mcnh_api_key') || '',
     sheetsUrl: localStorage.getItem('mcnh_sheets_url') || '',
     newsTitle: '',
     newsSummary: '',
     aiAnalysis: '',
     sentiment: 'neutral',
-    favorites: JSON.parse(localStorage.getItem('mcnh_favorites')) || ["전력인프라", "ESS", "반도체", "HD현대일렉트릭", "K방산", "연준 금리"],
-    history: JSON.parse(localStorage.getItem('mcnh_history')) || []
+    favorites: [], // Supabase에서 로드
+    history: []    // Supabase에서 로드
   };
 
-  // Initialize UI
-  init();
+  // Initialize UI (async - Supabase 데이터 로드)
+  await init();
 
-  function init() {
+  async function init() {
     // Fill Settings Inputs
-    inputApiKey.value = appState.apiKey;
     inputSheetsUrl.value = appState.sheetsUrl;
 
     // Update Status Indicators
     updateStatusIndicators();
+
+    // ── Supabase에서 favorites & history 로드 ──
+    await loadFavoritesFromSupabase();
+    await loadHistoryFromSupabase();
 
     // Render Favorites
     renderFavorites();
@@ -126,17 +137,102 @@ document.addEventListener('DOMContentLoaded', () => {
     updateExportButtonState();
   }
 
+  // ── Supabase CRUD 함수들 ─────────────────────────────────────────
+
+  async function loadFavoritesFromSupabase() {
+    try {
+      const { data, error } = await supabase
+        .from('favorites')
+        .select('keyword')
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        appState.favorites = data.map(r => r.keyword);
+      } else {
+        // 테이블이 비어있으면 기본값 삽입
+        const defaults = ['전력인프라', 'ESS', '반도체', 'HD현대일렉트릭', 'K방산', '연준 금리'];
+        appState.favorites = defaults;
+        for (const kw of defaults) {
+          await supabase.from('favorites').upsert({ keyword: kw }, { onConflict: 'keyword' });
+        }
+      }
+    } catch (err) {
+      console.warn('Supabase favorites 로드 실패, localStorage fallback 사용:', err.message);
+      useSupabase = false;
+      appState.favorites = JSON.parse(localStorage.getItem('mcnh_favorites')) || ['전력인프라', 'ESS', '반도체', 'HD현대일렉트릭', 'K방산', '연준 금리'];
+    }
+  }
+
+  async function loadHistoryFromSupabase() {
+    try {
+      const { data, error } = await supabase
+        .from('history')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(30);
+
+      if (error) throw error;
+      appState.history = data || [];
+    } catch (err) {
+      console.warn('Supabase history 로드 실패, localStorage fallback 사용:', err.message);
+      useSupabase = false;
+      appState.history = JSON.parse(localStorage.getItem('mcnh_history')) || [];
+    }
+  }
+
+  async function addFavoriteToSupabase(keyword) {
+    if (!useSupabase) {
+      appState.favorites.push(keyword);
+      localStorage.setItem('mcnh_favorites', JSON.stringify(appState.favorites));
+      return;
+    }
+    const { error } = await supabase.from('favorites').insert({ keyword });
+    if (error) throw error;
+    appState.favorites.push(keyword);
+  }
+
+  async function deleteFavoriteFromSupabase(keyword) {
+    if (!useSupabase) {
+      appState.favorites = appState.favorites.filter(x => x !== keyword);
+      localStorage.setItem('mcnh_favorites', JSON.stringify(appState.favorites));
+      return;
+    }
+    const { error } = await supabase.from('favorites').delete().eq('keyword', keyword);
+    if (error) throw error;
+    appState.favorites = appState.favorites.filter(x => x !== keyword);
+  }
+
+  async function saveHistoryToSupabase(record) {
+    if (!useSupabase) {
+      // localStorage fallback
+      if (appState.history.length > 0 && appState.history[0].commentary === record.commentary) return;
+      appState.history.unshift(record);
+      if (appState.history.length > 30) appState.history.pop();
+      localStorage.setItem('mcnh_history', JSON.stringify(appState.history));
+      return;
+    }
+    const { data, error } = await supabase.from('history').insert({
+      date: record.date,
+      keyword: record.keyword,
+      summary: record.summary,
+      analysis: record.analysis,
+      sentiment: record.sentiment,
+      commentary: record.commentary
+    }).select();
+    if (error) throw error;
+    appState.history.unshift(data[0]);
+    if (appState.history.length > 30) appState.history.pop();
+  }
+
   // --- Status & Settings Helpers ---
   function updateStatusIndicators() {
-    if (appState.apiKey) {
-      dotApi.className = 'status-dot active';
-    } else {
-      dotApi.className = 'status-dot warning';
-    }
-
     if (appState.sheetsUrl) {
+      dotApi.className = 'status-dot active';
       dotSheets.className = 'status-dot active';
     } else {
+      dotApi.className = 'status-dot warning';
       dotSheets.className = 'status-dot';
     }
   }
@@ -150,13 +246,9 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function saveSettings() {
-    const key = inputApiKey.value.trim();
     const url = inputSheetsUrl.value.trim();
 
-    localStorage.setItem('mcnh_api_key', key);
     localStorage.setItem('mcnh_sheets_url', url);
-
-    appState.apiKey = key;
     appState.sheetsUrl = url;
 
     updateStatusIndicators();
@@ -177,7 +269,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function renderHistory() {
     historyList.innerHTML = '';
-    
+
     if (!appState.history || appState.history.length === 0) {
       historyEmpty.classList.remove('hidden');
       historyList.classList.add('hidden');
@@ -213,22 +305,18 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  function saveToHistory(record) {
-    if (appState.history.length > 0 && appState.history[0].commentary === record.commentary) {
-      return;
+  async function saveToHistory(record) {
+    try {
+      await saveHistoryToSupabase(record);
+    } catch (err) {
+      console.error('saveToHistory 실패:', err.message);
     }
-    
-    appState.history.unshift(record);
-    if (appState.history.length > 30) {
-      appState.history.pop();
-    }
-    localStorage.setItem('mcnh_history', JSON.stringify(appState.history));
   }
 
   // --- Favorite Keywords Helpers ---
   function renderFavorites() {
     favoritesList.innerHTML = '';
-    
+
     if (!appState.favorites || appState.favorites.length === 0) {
       favoritesList.innerHTML = '<span style="color: var(--text-muted); font-size: 0.8rem; font-style: italic;">즐겨찾기가 없습니다.</span>';
       return;
@@ -238,12 +326,12 @@ document.addEventListener('DOMContentLoaded', () => {
       const chip = document.createElement('span');
       chip.className = 'favorite-chip';
       chip.textContent = fav + ' ';
-      
+
       const delBtn = document.createElement('button');
       delBtn.className = 'btn-del-fav';
       delBtn.innerHTML = '&times;';
       delBtn.title = '삭제';
-      
+
       delBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         deleteFavorite(fav);
@@ -260,7 +348,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  function addFavorite() {
+  async function addFavorite() {
     const val = searchKeyword.value.trim();
     if (!val) {
       showToast('추가할 키워드를 입력해 주세요.', 'error');
@@ -272,17 +360,25 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    appState.favorites.push(val);
-    localStorage.setItem('mcnh_favorites', JSON.stringify(appState.favorites));
-    renderFavorites();
-    showToast(`"${val}" 키워드가 즐겨찾기에 추가되었습니다.`, 'success');
+    try {
+      await addFavoriteToSupabase(val);
+      renderFavorites();
+      showToast(`"${val}" 키워드가 즐겨찾기에 추가되었습니다.`, 'success');
+    } catch (err) {
+      console.error(err);
+      showToast(`즐겨찾기 추가 실패: ${err.message}`, 'error');
+    }
   }
 
-  function deleteFavorite(fav) {
-    appState.favorites = appState.favorites.filter(x => x !== fav);
-    localStorage.setItem('mcnh_favorites', JSON.stringify(appState.favorites));
-    renderFavorites();
-    showToast(`"${fav}" 키워드가 삭제되었습니다.`, 'success');
+  async function deleteFavorite(fav) {
+    try {
+      await deleteFavoriteFromSupabase(fav);
+      renderFavorites();
+      showToast(`"${fav}" 키워드가 삭제되었습니다.`, 'success');
+    } catch (err) {
+      console.error(err);
+      showToast(`삭제 실패: ${err.message}`, 'error');
+    }
   }
 
   // --- Yesterday Commentary Loader ---
@@ -301,7 +397,7 @@ document.addEventListener('DOMContentLoaded', () => {
       commentaryInput.value = record.commentary;
       updateCharCount();
       updateExportButtonState();
-      
+
       // Update date to today's date
       const tYyyy = today.getFullYear();
       const tMm = String(today.getMonth() + 1).padStart(2, '0');
@@ -400,7 +496,7 @@ document.addEventListener('DOMContentLoaded', () => {
     btnExport.disabled = !(hasSheets && hasContent);
   }
 
-  // --- Search & Gemini API ---
+  // --- Search & Gemini API (Apps Script 프록시 경유) ---
   async function performSearchAndAnalysis() {
     const keyword = searchKeyword.value.trim();
 
@@ -410,8 +506,8 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    if (!appState.apiKey) {
-      showToast('Gemini API 키가 설정되지 않았습니다. 우측 상단 설정을 열어주세요.', 'error');
+    if (!appState.sheetsUrl) {
+      showToast('⚙️ Google Sheets Web App URL이 설정되지 않았습니다.\n설정에서 Apps Script URL을 입력해주세요.', 'error');
       openSettings();
       return;
     }
@@ -422,102 +518,58 @@ document.addEventListener('DOMContentLoaded', () => {
     aiLoadingState.classList.remove('hidden');
     btnSearch.disabled = true;
 
-    const prompt = `당신은 경제/금융 전문 애널리스트이자 실황 리포트 작성 도우미입니다. 
-다음 검색 키워드에 대해 최신 뉴스를 실시간 구글 검색으로 탐색하고 분석한 리포트를 작성하세요.
-키워드: "${keyword}"
-
-최신 상황을 탐색한 후, 반드시 아래의 JSON 스키마를 만족하는 결과물만을 출력해야 합니다.
-답변에는 마크다운 기호(\`\`\`)나 다른 설명용 텍스트를 절대 넣지 말고, 오직 파싱 가능한 순수 JSON 오브젝트만 반환하세요:
-
-{
-  "news_title": "가장 중요도가 높고 핵심을 찌르는 뉴스 헤드라인 제목 1개",
-  "summary": "최근 뉴스 및 시장 움직임의 주요 팩트와 세부 수치를 요약한 핵심 리스트 (3~4줄로 정리하되, 각 줄의 시작은 '-' 글머리 기호로 작성)",
-  "sentiment": "bullish" | "bearish" | "neutral" 중 하나 (뉴스가 시장 전반 혹은 관련 섹터에 미치는 영향의 성격),
-  "analysis": "해당 뉴스가 시황에 미칠 영향성, 주목해야 할 전망 및 투자자 대응 방안 (3~4줄로 정리하되, 각 줄의 시작은 '-' 글머리 기호로 작성)"
-}`;
-
-    let response;
-    let retries = 3;
-    let delay = 2000; // start with 2 seconds
-
     try {
-      for (let i = 0; i < retries; i++) {
-        response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-goog-api-key': appState.apiKey
-          },
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [
-                  { text: prompt }
-                ]
-              }
-            ],
-            tools: [
-              {
-                google_search: {}
-              }
-            ]
-          })
-        });
-
-        // 429 Error Retry logic
-        if (response.status === 429 && i < retries - 1) {
-          showToast(`API 요청량 초과(429) 감지: ${delay / 1000}초 후 자동 재시도합니다... (${i + 1}/${retries})`, 'warning');
-          await new Promise(resolve => setTimeout(resolve, delay));
-          delay *= 2; // exponential backoff
-          continue;
-        }
-        break;
-      }
+      // Apps Script를 통해 Gemini API 호출 (보안 및 AQ. 키 문제 해결)
+      const response = await fetch(appState.sheetsUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // Apps Script CORS
+        body: JSON.stringify({
+          action: 'analyzeKeyword',
+          keyword: keyword
+        })
+      });
 
       if (!response.ok) {
-        if (response.status === 429) {
-          throw new Error(`API 요청 한도 초과 (429). Google Search Grounding 도구 또는 Gemini API 사용량이 한도에 달했습니다. 1~2분 후에 다시 시도해 주세요.`);
-        }
-        throw new Error(`API Error: ${response.status} ${response.statusText}`);
+        throw new Error(`Apps Script 호출 실패 (${response.status}): ${response.statusText}`);
       }
 
       const resData = await response.json();
 
-      // Parse response text - handle markdown code fences if present
-      let resultText = resData.candidates[0].content.parts[0].text.trim();
-      // Strip markdown code fences (```json ... ```) if the model wraps the output
+      if (resData.status === 'error') {
+        throw new Error(resData.message);
+      }
+
+      // Apps Script에서 받은 Gemini 결과 파싱
+      let resultText = resData.result?.trim() || '';
+      if (!resultText) throw new Error('분석 결과가 비어 있습니다.');
+
+      // Strip markdown code fences if present
       const jsonMatch = resultText.match(/```(?:json)?\s*([\s\S]*?)```/);
-      if (jsonMatch) {
-        resultText = jsonMatch[1].trim();
-      }
-      // Also try to extract a raw JSON object if no fences
+      if (jsonMatch) resultText = jsonMatch[1].trim();
       const rawMatch = resultText.match(/\{[\s\S]*\}/);
-      if (rawMatch) {
-        resultText = rawMatch[0];
-      }
+      if (rawMatch) resultText = rawMatch[0];
+
       const parsedData = JSON.parse(resultText);
 
       // Update State
-      appState.newsTitle = parsedData.news_title || '';
-      appState.newsSummary = parsedData.summary || '';
-      appState.aiAnalysis = parsedData.analysis || '';
-      appState.sentiment = parsedData.sentiment || 'neutral';
+      appState.newsTitle   = parsedData.news_title || '';
+      appState.newsSummary = parsedData.summary    || '';
+      appState.aiAnalysis  = parsedData.analysis   || '';
+      appState.sentiment   = parsedData.sentiment  || 'neutral';
 
       // Update UI
-      newsSummaryText.innerHTML = `<strong>[헤드라인] ${appState.newsTitle}</strong><br><br>${formatBulletPoints(appState.newsSummary)}`;
+      newsSummaryText.innerHTML  = `<strong>[헤드라인] ${appState.newsTitle}</strong><br><br>${formatBulletPoints(appState.newsSummary)}`;
       marketAnalysisText.innerHTML = formatBulletPoints(appState.aiAnalysis);
 
-      // Update Sentiment Badge
-      sentimentBadge.textContent = appState.sentiment;
-      sentimentBadge.className = `sentiment-display sentiment-${appState.sentiment}`;
+      sentimentBadge.textContent  = appState.sentiment;
+      sentimentBadge.className    = `sentiment-display sentiment-${appState.sentiment}`;
 
-      // Show Result
       aiLoadingState.classList.add('hidden');
       aiResultState.classList.remove('hidden');
-      showToast('성공적으로 실시간 분석이 완료되었습니다.', 'success');
+      showToast('✅ 실시간 AI 분석 완료!', 'success');
 
     } catch (error) {
-      console.error(error);
+      console.error('[분석 실패]', error);
       aiLoadingState.classList.add('hidden');
       aiEmptyState.classList.remove('hidden');
       showToast(`분석 실패: ${error.message}`, 'error');
@@ -568,10 +620,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // Since 'no-cors' does not let us read the status, if the fetch promise resolves (which it does unless there's a network drop),
       // we can comfortably display a success message.
-      showToast('구글 시트로 전송이 성공적으로 완료되었습니다!', 'success');
+      showToast('구글 시트 전송 완료! Supabase에 히스토리 저장 중...', 'success');
 
-      // Save to local history
-      saveToHistory({
+      // Save to Supabase history (+ localStorage fallback)
+      await saveToHistory({
         date: commentaryDate.value,
         keyword: searchKeyword.value.trim(),
         summary: appState.newsSummary ? `[${appState.newsTitle}]\n${appState.newsSummary}` : '',
@@ -579,6 +631,8 @@ document.addEventListener('DOMContentLoaded', () => {
         sentiment: appState.sentiment || 'neutral',
         commentary: commentaryInput.value.trim()
       });
+
+      showToast('구글 시트 전송 및 히스토리 저장 완료!', 'success');
 
     } catch (error) {
       console.error(error);

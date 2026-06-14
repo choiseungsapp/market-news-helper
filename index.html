@@ -221,33 +221,25 @@
       </div>
       
       <div class="modal-body">
-        <!-- API Key Input -->
-        <div class="input-group">
-          <label for="input-api-key" class="input-label">Gemini API Key</label>
-          <input type="password" id="input-api-key" class="text-input" placeholder="AIZAy...">
-          <small style="color: var(--text-muted); margin-top: 0.25rem;">
-            구글 AI 스튜디오에서 발급받은 API 키를 입력하세요. 웹 검색 기능이 활성화됩니다.
-          </small>
-        </div>
-
         <!-- Sheets Web App URL -->
         <div class="input-group">
-          <label for="input-sheets-url" class="input-label">Google Sheets Web App URL</label>
+          <label for="input-sheets-url" class="input-label">Google Sheets Web App URL (Apps Script)</label>
           <input type="text" id="input-sheets-url" class="text-input" placeholder="https://script.google.com/macros/s/.../exec">
           <small style="color: var(--text-muted); margin-top: 0.25rem;">
-            데이터를 보낼 구글 스프레드시트의 배포된 웹 앱 주소입니다.
+            AI 분석 및 데이터 기록을 담당하는 구글 스프레드시트 배포 웹 앱 주소입니다.
           </small>
         </div>
 
         <!-- Script Setup Instructions -->
         <div class="setup-instructions">
-          <strong>구글 스프레드시트 연동 방법:</strong>
+          <strong>구글 스프레드시트 및 Gemini 연동 방법:</strong>
           <ol>
-            <li>연동할 구글 시트에서 <code>확장 프로그램 &gt; Apps Script</code>를 클릭합니다.</li>
-            <li>워크스페이스 내 <code>google-sheets-script.js</code> 안의 코드를 복사하여 붙여넣고 저장합니다.</li>
-            <li>우측 상단 <code>배포 &gt; 새 배포</code>를 클릭합니다.</li>
-            <li>유형은 <strong>웹 앱</strong>으로 설정하고, 액세스 권한은 <strong>모든 사용자(Anyone)</strong>로 설정한 후 배포합니다.</li>
-            <li>발급된 <strong>웹 앱 URL</strong>을 위 입력칸에 붙여넣습니다.</li>
+            <li>구글 스프레드시트에서 <code>확장 프로그램 &gt; Apps Script</code>를 실행합니다.</li>
+            <li><code>google-sheets-script.js</code> 코드를 복사하여 기존 스크립트에 덮어쓰고 저장합니다.</li>
+            <li>좌측의 <strong>프로젝트 설정(톱니바퀴 아이콘)</strong>을 클릭합니다.</li>
+            <li><strong>스크립트 속성 편집</strong>을 누르고, 속성명 <code>GEMINI_API_KEY</code>를 추가한 뒤 값에 사용자의 Gemini API Key(AQ. 또는 AIza 형식)를 넣고 저장합니다.</li>
+            <li>우측 상단 <code>배포 &gt; 새 배포</code>를 눌러 <strong>웹 앱</strong> 유형으로, 실행 권한은 <strong>나(Me)</strong>, 액세스는 <strong>모든 사용자(Anyone)</strong>로 설정하여 배포합니다.</li>
+            <li>생성된 <strong>웹 앱 URL</strong>을 위 입력칸에 입력하고 저장합니다.</li>
           </ol>
         </div>
 
@@ -290,6 +282,7 @@
     <div class="toast-message" id="toast-message">알림 메시지</div>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="app.js"></script>
 </body>
 </html>
